@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="it">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>iOS Entitlements Viewer by fr3nsis</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <link rel="stylesheet" href="https://code.jquery.com/ui/1.13.2/themes/base/jquery-ui.css" />
+  <script src="https://code.jquery.com/ui/1.13.2/jquery-ui.min.js"></script>
+</head>
+
+<div class="container-fluid  p-3">
+  <div id="stats" class="text-start mb-3" style="font-weight: normal; font-size: 0.9rem;">
+  </div>
+
+  <div class="text-center my-5">
+    <h1>iOS Entitlement Database</h1>
+    <p class="text-muted">
+      As compiled by Francesco Pompili, <a href="https://twitter.com/fr3nsis" target="_blank"
+        rel="noopener noreferrer">@fr3nsis</a>
+    </p>
+  </div>
+
+  <h6>iOS version</h6>
+  <div id="iosVersionsContainer" class="mb-3 d-flex flex-wrap gap-2"></div>
+
+  <div class="mb-3 d-flex align-items-start gap-4 w-100">
+    <div class="flex-fill">
+      <h6>Processes</h6>
+      <select id="processes" class="form-select w-100"></select>
+    </div>
+    <div class="flex-fill">
+      <h6>Entitlements key</h6>
+      <input type="text" id="keysearch" class="form-control w-100" disabled>
+    </div>
+  </div>
+
+
+  <div id="details" style="display:none;">
+    <h6>Path</h6>
+    <pre id="procPath" class="bg-light p-2 rounded"></pre>
+    <h6>Entitlements</h6>
+    <pre id="entitlementsXml" class="bg-light p-2 rounded"
+      style="white-space: pre-wrap; max-height: 400px; overflow-y: auto;"></pre>
+    <button id="exportXmlBtn" class="btn btn-sm btn-outline-secondary mt-2">Export xml</button>
+  </div>
+
+  <script>
+    const API_BASE = "http://127.0.0.1:8000";
+    let selectedVersion = null;
+
+    $('#processes').prop('disabled', true);
+    $('#keysearch').prop('disabled', true);
+
+    function loadStats(version) {
+      $("#stats").text("Loading stats...");
+
+      $.getJSON(`${API_BASE}/stats/${version}`, function (data) {
+        $("#stats").text(`Loaded ${data.processes_count} executables and ${data.keys_count} entitlements for iOS version ${data.version}`);
+      }).fail(function () {
+        $("#stats").text("Error loading stats");
+      });
+    }
+
+    $('#exportXmlBtn').on('click', function () {
+      const xmlContent = $('#entitlementsXml').text();
+      const blob = new Blob([xmlContent], { type: 'application/xml' });
+      const url = URL.createObjectURL(blob);
+
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'entitlements.xmls';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    });
+
+    function loadVersions() {
+      $.getJSON(`${API_BASE}/ios_versions`, function (data) {
+        const container = $("#iosVersionsContainer");
+        container.empty();
+
+        data.forEach(version => {
+          const link = $(`<a href="#" class="btn btn-outline-primary btn-sm me-2 mb-2">${version}</a>`);
+          link.click(function (e) {
+            e.preventDefault();
+            $(".btn-primary").removeClass("btn-primary").addClass("btn-outline-primary");
+            $(this).removeClass("btn-outline-primary").addClass("btn-primary");
+            selectedVersion = version;
+
+            $('#keysearch').prop('disabled', false);
+            $('#keysearch').val('');
+            loadStats(version);
+            loadProcesses(version);
+          });
+          container.append(link);
+        });
+
+        if (data.length > 0) {
+          container.find("a").first().trigger("click");
+        }
+      });
+    }
+
+    function loadProcesses(iosVersion) {
+      $("#processes").prop("disabled", true).empty().append(`<option>Loading...</option>`);
+      $.getJSON(`${API_BASE}/processes/${encodeURIComponent(iosVersion)}`, function (data) {
+        $("#processes").empty().append(`<option value="">Select a process</option>`);
+        data.forEach(p => {
+          $("#processes").append(`<option value="${p.id}">${p.name}</option>`);
+        });
+        $("#processes").prop("disabled", false);
+        $("#details").hide();
+      });
+    }
+
+    $("#processes").change(function () {
+      const processId = $(this).val();
+      if (processId) {
+        loadProcessDetails(selectedVersion, processId);
+      } else {
+        $("#details").hide();
+      }
+    });
+
+    function loadProcessDetails(iosVersion, processId) {
+      $("#details").hide();
+      $.getJSON(`${API_BASE}/process/${encodeURIComponent(iosVersion)}/${processId}`, function (data) {
+        $("#procPath").text(data.path);
+        $("#entitlementsXml").text(data.entitlements_xml);
+        $("#details").show();
+      });
+    }
+
+    $('#keysearch').prop('disabled', false).autocomplete({
+      source: function (request, response) {
+        if (!selectedVersion) {
+          response([]);
+          return;
+        }
+        $.ajax({
+          url: `${API_BASE}/keys_autocomplete`,
+          dataType: "json",
+          data: {
+            key: request.term,
+            version: selectedVersion
+          },
+          success: function (data) {
+            console.log(data)
+            if (data.length === 0) {
+              $("#keysearch").autocomplete("close");
+              return;
+            }
+            response(data.map(p => ({
+              label: p,
+              value: p,
+            })));
+          }
+        });
+      },
+      minLength: 3,
+      select: function (event, ui) {
+        const selectedKey = ui.item.value;
+        console.log(`Selected key: ${selectedKey}`);
+        $.get(`${API_BASE}/search_by_key`, {
+          version: selectedVersion,
+          key: selectedKey
+        }, function (data) {
+          const $processSelect = $("#processes");
+          $processSelect.empty();
+          if (data.length === 0) {
+            $processSelect.append(`<option disabled>No process found</option>`);
+          } else {
+            data.forEach(p => {
+              $processSelect.append(`<option value="${p.id}">${p.name}</option>`);
+            });
+            $processSelect.prop("selectedIndex", 0).trigger('change');
+          }
+        });
+      }
+    });
+
+    $(document).ready(function () {
+      $('#processes').prop('disabled', true);
+      $('#keysearch').prop('disabled', true);
+      loadVersions();
+    });
+  </script>
+
+  </body>
+
+</html>
