@@ -90,14 +90,15 @@ def main():
             for key in entitlements:
                 c.execute("INSERT OR IGNORE INTO keys (key) VALUES (?)", (key,))
                 conn.commit()
+    conn.close()
+    print("Done!")
+
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-     print("Error: Please provide 2 parameters.")
-     print("Usage: python extractor.py <root_folder> <ios_version>")
-     sys.exit(1)
+        print("Error: Please provide 2 parameters.")
+        print("Usage: python extractor.py <root_folder> <ios_version>")
+        sys.exit(1)
     BINARIES_DIR = sys.argv[1]
     IOS_VERSION = sys.argv[2]
     main()
-    conn.close()
-    print("Esecuzione completata.")

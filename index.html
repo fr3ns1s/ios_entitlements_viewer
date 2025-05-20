@@ -135,6 +135,16 @@
       });
     }
 
+    $("#keysearch").on("input", function () {
+      const val = $(this).val().trim();
+      if (val === "") {
+        if (selectedVersion) {
+          loadProcesses(selectedVersion);
+        }
+        $("#details").hide();
+      }
+    });
+
     $('#keysearch').prop('disabled', false).autocomplete({
       source: function (request, response) {
         if (!selectedVersion) {
@@ -164,7 +174,6 @@
       minLength: 3,
       select: function (event, ui) {
         const selectedKey = ui.item.value;
-        console.log(`Selected key: ${selectedKey}`);
         $.get(`${API_BASE}/search_by_key`, {
           version: selectedVersion,
           key: selectedKey
